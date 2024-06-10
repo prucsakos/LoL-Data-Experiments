@@ -2,6 +2,7 @@ from enum import Enum
 import time
 import requests
 
+
 MINUTE = 60
 
 ERROR_CODES = {
@@ -41,6 +42,24 @@ class Region:
     EUROPE = "europe"
     SEA = "sea"
 
+PLATFORM_TO_REGION = {
+    Platform.EUN1: Region.EUROPE,
+    Platform.EUW1: Region.EUROPE,
+    Platform.TR1: Region.EUROPE,
+    Platform.RU: Region.EUROPE,
+    Platform.BR1: Region.AMERICAS, 
+    Platform.LA1: Region.AMERICAS,
+    Platform.LA2: Region.AMERICAS,
+    Platform.NA1: Region.AMERICAS,
+    Platform.JP1: Region.ASIA,
+    Platform.KR: Region.ASIA,
+    Platform.VN2: Region.SEA,
+    Platform.TW2: Region.SEA,
+    Platform.TH2: Region.SEA,
+    Platform.SG2: Region.SEA,
+    Platform.OC1: Region.SEA,
+    Platform.PH2: Region.SEA,
+}
 
 class Queue:
     RANKED_SOLO = "RANKED_SOLO_5x5"
@@ -52,13 +71,13 @@ class RiotApiInterface:
     """Get data from riot api. Methods implemented only for nececcary endpoints."""
 
     def __init__(
-        self, api_key, platform, region=Region.EUROPE, default_rate_limit=False
+        self, api_key, platform, default_rate_limit=False
     ):
         self.api_key = api_key
         self.platform = platform
-        self.region = region
+        self.region = PLATFORM_TO_REGION[platform]
         self.base_lol_url = f"https://{platform}.api.riotgames.com/lol/"
-        self.base_lol_region_url = f"https://{region}.api.riotgames.com/lol/"
+        self.base_lol_region_url = f"https://{self.region}.api.riotgames.com/lol/"
         self.headers = {"X-Riot-Token": api_key}
 
         self.last_call_on_endpoints = {}
@@ -146,15 +165,19 @@ class RiotApiInterface:
         endTime=None,
         startTime=None,
     ):
-        url = f"{self.base_lol_region_url}match/v5/matches/by-puuid/{encrypted_puuid}/ids?start={start}&count={count}"
+        parameters = []
+        url = f"{self.base_lol_region_url}match/v5/matches/by-puuid/{encrypted_puuid}/ids?"
         if queue:
-            url += f"&queue={queue}"
+            parameters.append(f"queue={queue}")
         if type:
-            url += f"&type={type}"
+            parameters.append(f"type={type}")
         if endTime:
-            url += f"&endTime={endTime}"
+            parameters.append(f"endTime={endTime}")
         if startTime:
-            url += f"&startTime={startTime}"
+            parameters.append(f"startTime={startTime}")
+        parameters.append(f"start={start}")
+        parameters.append(f"count={count}")
+        url += "&".join(parameters)
         response = requests.get(url, headers=self.headers)
         return self.handle_response(response)
 
