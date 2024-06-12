@@ -2,16 +2,16 @@
 """
 
 import queue
-from typing import List
-import RiotApiInterface
 import time
-import tqdm
 import os
 import threading
 import datetime
 import json
-import pandas as pd
 import sqlite3
+from typing import List
+import RiotApiInterface
+import pandas as pd
+import tqdm
 
 def fetch_high_tier_puuids():
     platforms = list(
@@ -78,15 +78,9 @@ def fetch_match_data_by_matchid(database_path):
 
 def main():
     db_path = "./data/data.db"
-    #fetch_high_tier_puuids()
-    #fetch_matchlist_by_puuid()
+    fetch_high_tier_puuids()
+    fetch_matchlist_by_puuid()
     fetch_match_data_by_matchid(db_path)
-
-    # c1 = sqlite3.connect('data.db')
-    # c = c1.cursor()
-    # c.execute('DROP TABLE IF EXISTS TestTable')
-    # 
-    # ojs.to_sql('TestTable', c2, index=False)
     
 def write_match_data_by_match_id(database_path, _queue: queue.Queue, threads):
     db = sqlite3.connect(database_path)
