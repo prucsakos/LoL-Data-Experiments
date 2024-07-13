@@ -35,6 +35,16 @@ class Platform:
     TW2 = "tw2"
     VN2 = "vn2"
 
+PLATFORMS = list(
+        filter(
+            lambda x: len(x) < 5,
+            [
+                value
+                for name, value in vars(Platform).items()
+                if isinstance(value, str)
+            ],
+        )
+    )
 
 class Region:
     AMERICAS = "americas"
