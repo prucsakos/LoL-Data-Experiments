@@ -16,6 +16,9 @@ def convert_date_to_string(year, month, day):
 
 
 def main():
+    out = "data.db"
+    start_date = convert_date_to_string(2024, 7, 1)
+    
     # api
     api_keys = open("riot.txt", "r").read().split("\n")
     api_keys = list(filter(lambda x: len(x) > 5, api_keys))
@@ -25,10 +28,68 @@ def main():
     #proxies = list(filter(lambda x: len(x) > 5, proxies))
     #assign_apikeys_to_proxies(proxies, api_keys, leave_first=False)
 
-    region = Region.EUROPE
-    p = RiotDataScraper_2024_07(api_keys, region)
-    p.start(start_date=convert_date_to_string(2024, 7, 1), out="data.db")
+    # START WRITER
+    terminate = False
+    db_writer_queue = queue.Queue()
+    # start db writer
+    db_writer = threading.Thread(
+        target=worker_write_data_to_db, args=(out, db_writer_queue, terminate)
+    )
+    db_writer.start()
 
+    # THREAD FOR EACH REGION
+    ts = []
+    for region in REGIONS:
+        t = threading.Thread(target=start_scraper_for_region, args=(api_keys, region, db_writer_queue, start_date))
+        t.start()
+        ts.append(t)
+        
+    [t.join() for t in ts]
+    while not db_writer_queue.empty():
+        time.sleep(1)
+    terminate = True   
+    
+    
+def start_scraper_for_region(api_keys, region, db_writer_queue, start_date):    
+    p = RiotDataScraper_2024_07(api_keys,  region)
+    p.start(db_writer_queue, start_date=start_date)
+
+def worker_write_data_to_db(db_path, data_queue, terminate):
+
+    db = sqlite3.connect(db_path)
+
+    while not terminate:
+        try:
+            data = data_queue.get(block=False, timeout=None)
+
+            game_data = pd.json_normalize(data)
+            game_data.drop(
+                ["metadata.participants", "info.participants", "info.teams"],
+                axis=1,
+                inplace=True,
+            )
+
+            # preprocess data
+            game_participants = pd.json_normalize(
+                data, record_path=["info", "participants"], max_level=0, sep="."
+            )
+            game_participants.drop(
+                ["challenges", "missions", "perks"], axis=1, inplace=True
+            )
+            game_participants["gameId"] = data["info"]["gameId"]
+
+            # out to sqlite
+            game_data.to_sql(
+                con=db, name="game_data", if_exists="append", index=False
+            )
+            game_participants.to_sql(
+                con=db, name="game_participants", if_exists="append", index=False
+            )
+
+        except queue.Empty as e:
+            time.sleep(0.1)
+        except Exception as e:
+            print(e)
 
 class RiotDataScraper_2024_07:
     """There steps
@@ -80,16 +141,16 @@ class RiotDataScraper_2024_07:
     def _endpoint_str(self, func_name, location):
         return f"{func_name}_{location}"
 
-    def start(self, start_date, out="data.db"):
+    def start(self, db_writer_queue, start_date):
         # queues for main thread
         summIds = queue.Queue()
         puuids = queue.Queue()
         matchIds = queue.Queue()
-        matchdata = queue.Queue()
+        matchdata = db_writer_queue
 
         # init progress bars
         puuid_progress = tqdm(total=0, desc="PUUIDs Processed")
-        match_progress = tqdm(total=0, desc="Matches Processed")
+        match_progress = tqdm(total=0, desc="Matches Processed For {}".format(self.region))
         summIds_progresses = {api: tqdm(total=0, desc=f"SummIds Processed {api[:5]}") for api in self.api_keys}
 
         # Put (summid, platform) into summIds queue
@@ -108,7 +169,7 @@ class RiotDataScraper_2024_07:
                         top_tier_players.get(key).get(api).append(entry["summonerId"])
 
         # TEST - filter out most of items
-        #top_tier_players = dict(list(top_tier_players.items())[:5])
+        top_tier_players = dict(list(top_tier_players.items())[:5])
 
         # update process data
         self.process_data["sumIdLen"] = sum([sum([len(_v) for _k, _v in v.items()]) for k, v in top_tier_players.items()])/len(self.api_keys)
@@ -123,12 +184,6 @@ class RiotDataScraper_2024_07:
         summId_per_api = math.ceil(len(top_tier_players.keys()) / len(self.api_keys))
         summId_idxes = {api: [i, i*summId_per_api, min((i+1)*summId_per_api, len(top_tier_players.keys()))] for i, api in enumerate(self.api_keys)}
         print("summId_idxes: ",summId_idxes)
-
-        # start db writer
-        db_writer = threading.Thread(
-            target=self.worker_write_data_to_db, args=(out, matchdata)
-        )
-        db_writer.start()
 
         # list to be deterministic
         top_tier_players = list(top_tier_players.items())
@@ -235,7 +290,6 @@ class RiotDataScraper_2024_07:
             time.sleep(0.1)
 
         print("All jobs done, waiting for db writer to finish")
-        db_writer.join()
 
     def worker_summid_to_matchids_unified(self, region, platform, api_key, matchid_queue, summid, start_date):
         rai = RiotApiInterface()
@@ -278,43 +332,6 @@ class RiotDataScraper_2024_07:
         rai = RiotApiInterface()
         matchData = rai.get_match_by_id(region, matchId, api_key)
         matchdata.put(matchData)
-
-    def worker_write_data_to_db(self, db_path, matchdata):
-
-        db = sqlite3.connect(db_path)
-
-        while True:
-            try:
-                data = matchdata.get(block=False, timeout=None)
-
-                game_data = pd.json_normalize(data)
-                game_data.drop(
-                    ["metadata.participants", "info.participants", "info.teams"],
-                    axis=1,
-                    inplace=True,
-                )
-
-                # preprocess data
-                game_participants = pd.json_normalize(
-                    data, record_path=["info", "participants"], max_level=0, sep="."
-                )
-                game_participants.drop(
-                    ["challenges", "missions", "perks"], axis=1, inplace=True
-                )
-                game_participants["gameId"] = data["info"]["gameId"]
-
-                # out to sqlite
-                game_data.to_sql(
-                    con=db, name="game_data", if_exists="append", index=False
-                )
-                game_participants.to_sql(
-                    con=db, name="game_participants", if_exists="append", index=False
-                )
-
-            except queue.Empty as e:
-                time.sleep(0.1)
-            except Exception as e:
-                print(e)
 
 
 main()
