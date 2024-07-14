@@ -9,14 +9,15 @@ from typing import List
 from RiotApiInterface import *
 import pandas as pd
 from tqdm import tqdm
+import multiprocessing
 
 
 def convert_date_to_string(year, month, day):
     return str(int(datetime.datetime(year, month, day).timestamp()))
 
 
-def main():
-    out = "data.db"
+def main_depr():
+    out = "data/data.db"
     start_date = convert_date_to_string(2024, 7, 1)
     
     # api
@@ -40,6 +41,7 @@ def main():
     # THREAD FOR EACH REGION
     ts = []
     for region in REGIONS:
+        print(f"Starting scraper for {region}")
         t = threading.Thread(target=start_scraper_for_region, args=(api_keys, region, db_writer_queue, start_date))
         t.start()
         ts.append(t)
@@ -48,6 +50,45 @@ def main():
     while not db_writer_queue.empty():
         time.sleep(1)
     terminate = True   
+    
+def main():
+    out = "data/data.db"
+    start_date = convert_date_to_string(2024, 7, 1)
+    
+    # api
+    api_keys = open("riot.txt", "r").read().split("\n")
+    api_keys = list(filter(lambda x: len(x) > 5, api_keys))
+
+    # proxies (commented out since they are not used)
+    #proxies = open("proxies.txt", "r").read().split("\n")
+    #proxies = list(filter(lambda x: len(x) > 5, proxies))
+    #assign_apikeys_to_proxies(proxies, api_keys, leave_first=False)
+
+    # START WRITER
+    manager = multiprocessing.Manager()
+    db_writer_queue = manager.Queue()
+    terminate = manager.Value('b', False)
+
+    # start db writer
+    db_writer = multiprocessing.Process(
+        target=worker_write_data_to_db, args=(out, db_writer_queue, terminate)
+    )
+    db_writer.start()
+
+    # PROCESS FOR EACH REGION
+    processes = []
+    for region in REGIONS:
+        print(f"Starting scraper for {region}")
+        p = multiprocessing.Process(target=start_scraper_for_region, args=(api_keys, region, db_writer_queue, start_date))
+        p.start()
+        processes.append(p)
+        
+    for p in processes:
+        p.join()
+    while not db_writer_queue.empty():
+        time.sleep(1)
+    terminate.value = True
+    db_writer.join() 
     
     
 def start_scraper_for_region(api_keys, region, db_writer_queue, start_date):    
@@ -106,6 +147,9 @@ class RiotDataScraper_2024_07:
 
         # use default rate limit 100 request per 2 minute
         self.call_interval = (2 * MINUTE + 1) / 100.0
+        
+        # report time
+        self.report_time = time.time()
 
         # matchhistory and matchbyid are actually from the same endpoint
         self.rai_funcs = [
@@ -149,18 +193,19 @@ class RiotDataScraper_2024_07:
         matchdata = db_writer_queue
 
         # init progress bars
-        puuid_progress = tqdm(total=0, desc="PUUIDs Processed")
-        match_progress = tqdm(total=0, desc="Matches Processed For {}".format(self.region))
-        summIds_progresses = {api: tqdm(total=0, desc=f"SummIds Processed {api[:5]}") for api in self.api_keys}
+        #puuid_progress = tqdm(total=0, desc="PUUIDs Processed for {}".format(self.region))
+        #match_progress = tqdm(total=0, desc="Matches Processed For {}".format(self.region))
+        #summIds_progresses = {api: tqdm(total=0, desc=f"SummIds Processed {api[:5]}") for api in self.api_keys}
 
         # Put (summid, platform) into summIds queue
         top_tier_players = {}
         for api in self.api_keys:
             for platform in self.region_platforms:
                 for q in ["RANKED_SOLO_5x5", "RANKED_FLEX_SR"]:
-                    print(f"Getting challenger leagues for {q} on {platform}, api: {api}")
+                    #print(f"Getting challenger leagues for {q} on {platform}, api: {api}")
                     resp = self.rai.get_challenger_leagues(q, platform, api)
-                    for entry in resp["entries"]:
+                    resp2 = self.rai.get_grandmaster_leagues(q, platform, api)
+                    for entry in resp["entries"] + resp2["entries"]:
                         key = (platform, entry["leaguePoints"], entry["rank"], entry["wins"], entry["losses"], entry["veteran"], entry["inactive"], entry["freshBlood"], entry["hotStreak"])
                         if not top_tier_players.get(key):
                             top_tier_players[key] = {}
@@ -169,7 +214,7 @@ class RiotDataScraper_2024_07:
                         top_tier_players.get(key).get(api).append(entry["summonerId"])
 
         # TEST - filter out most of items
-        #top_tier_players = dict(list(top_tier_players.items())[:20])
+        #top_tier_players = dict(list(top_tier_players.items())[:4])
 
         # update process data
         self.process_data["sumIdLen"] = sum([sum([len(_v) for _k, _v in v.items()]) for k, v in top_tier_players.items()])/len(self.api_keys)
@@ -197,6 +242,7 @@ class RiotDataScraper_2024_07:
             or not matchIds.empty()
             or not matchdata.empty()
         ):
+            #print("Condition states: ", len(summId_idxes.items()) > 0, not puuids.empty(), not matchIds.empty(), not matchdata.empty())
             scheduler_items = list(self.request_timepoints.items())
             # check if endpoints are free and there are jobs to be done
             for item in scheduler_items:
@@ -273,13 +319,31 @@ class RiotDataScraper_2024_07:
             # create / update tqdm progress bars for
             # 1. progress bar: self.process_data["puuidLen"] / self.process_data["sumIdLen"]
             # 2. progress bar: self.process_data["matchDataLen"] / len(self.unique_matchids)
-            puuid_progress.total = self.process_data.get("sumIdLen", 0)
-            puuid_progress.n = self.process_data.get("puuidLen", 0)
-            puuid_progress.refresh()
+            #puuid_progress.total = self.process_data.get("sumIdLen", 0)
+            #puuid_progress.n = self.process_data.get("puuidLen", 0)
+            #puuid_progress.refresh()
 
-            match_progress.total = len(self.unique_matchids)
-            match_progress.n = self.process_data.get("matchDataLen", 0)
-            match_progress.refresh()
+            #match_progress.total = len(self.unique_matchids)
+            #match_progress.n = self.process_data.get("matchDataLen", 0)
+            #match_progress.refresh()
+            
+            
+            # report every 60 seconds: percentage, current n, total n
+            
+            puuid_total = self.process_data.get("sumIdLen", 0)
+            puuid_n = self.process_data.get("puuidLen", 0)
+            
+            
+            match_progress_total = len(self.unique_matchids)
+            match_progress_n = self.process_data.get("matchDataLen", 0)
+            
+            if time.time() - self.report_time > 10:
+                self.report_time = time.time()
+                puuid_percentage = (puuid_n / (puuid_total+1)) * 100
+                match_progress_percentage = (match_progress_n / (match_progress_total+1)) * 100
+                if match_progress_percentage <= 95:
+                    print(f"{self.region} | PUUIDs: {puuid_n}/{puuid_total} ({puuid_percentage:.2f}%), Match Data: {match_progress_n}/{match_progress_total} ({match_progress_percentage:.2f}%)")
+            
             
             #for api, progress in summIds_progresses.items():
             #    if summId_idxes.get(api, None):
@@ -334,4 +398,6 @@ class RiotDataScraper_2024_07:
         matchdata.put(matchData)
 
 
-main()
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+    main()
