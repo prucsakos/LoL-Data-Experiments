@@ -169,7 +169,7 @@ class RiotDataScraper_2024_07:
                         top_tier_players.get(key).get(api).append(entry["summonerId"])
 
         # TEST - filter out most of items
-        top_tier_players = dict(list(top_tier_players.items())[:5])
+        #top_tier_players = dict(list(top_tier_players.items())[:20])
 
         # update process data
         self.process_data["sumIdLen"] = sum([sum([len(_v) for _k, _v in v.items()]) for k, v in top_tier_players.items()])/len(self.api_keys)
