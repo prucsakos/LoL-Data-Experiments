@@ -17,7 +17,7 @@ def convert_date_to_string(year, month, day):
     return str(int(datetime.datetime(year, month, day).timestamp()))
 
 
-def main_depr():
+def main():
     out = "data/data.db"
     start_date = convert_date_to_string(2024, 7, 1)
     
@@ -91,7 +91,7 @@ def main_multiproc():
     terminate.value = True
     db_writer.join() 
     
-def main():
+def main_arg():
     out = "data/data.db"
     start_date = convert_date_to_string(2024, 7, 1)
     
@@ -438,5 +438,4 @@ class RiotDataScraper_2024_07:
 
 
 if __name__ == "__main__":
-    multiprocessing.freeze_support()
     main()
