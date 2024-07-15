@@ -20,4 +20,4 @@ RUN mkdir -p /app/data
 VOLUME /app/data
 
 # Specify the command to run when the container starts
-CMD [ "python", "./src/data-collector-2/main.py" ]
+CMD ["./start.sh"]

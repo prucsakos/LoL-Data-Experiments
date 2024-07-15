@@ -10,6 +10,7 @@ from RiotApiInterface import *
 import pandas as pd
 from tqdm import tqdm
 import multiprocessing
+import sys
 
 
 def convert_date_to_string(year, month, day):
@@ -51,7 +52,7 @@ def main_depr():
         time.sleep(1)
     terminate = True   
     
-def main():
+def main_multiproc():
     out = "data/data.db"
     start_date = convert_date_to_string(2024, 7, 1)
     
@@ -89,6 +90,41 @@ def main():
         time.sleep(1)
     terminate.value = True
     db_writer.join() 
+    
+def main():
+    out = "data/data.db"
+    start_date = convert_date_to_string(2024, 7, 1)
+    
+    # api
+    api_keys = open("riot.txt", "r").read().split("\n")
+    api_keys = list(filter(lambda x: len(x) > 5, api_keys))
+
+    # proxies
+    #proxies = open("proxies.txt", "r").read().split("\n")
+    #proxies = list(filter(lambda x: len(x) > 5, proxies))
+    #assign_apikeys_to_proxies(proxies, api_keys, leave_first=False)
+
+    # START WRITER
+    terminate = False
+    db_writer_queue = queue.Queue()
+    # start db writer
+    db_writer = threading.Thread(
+        target=worker_write_data_to_db, args=(out, db_writer_queue, terminate)
+    )
+    db_writer.start()
+
+
+    region = sys.argv[1]
+    print(f"Starting scraper for {region}")
+    t = threading.Thread(target=start_scraper_for_region, args=(api_keys, region, db_writer_queue, start_date))
+    t.start()
+    t.join()
+    
+    while not db_writer_queue.empty():
+        time.sleep(1)
+    terminate = True
+    
+    print("All jobs done, waiting for db writer to finish")    
     
     
 def start_scraper_for_region(api_keys, region, db_writer_queue, start_date):    
