@@ -262,6 +262,9 @@ class RiotDataScraper_2024_07:
                     if summId_idxes[api_key][1] >= summId_idxes[api_key][2]:
                         summId_idxes.pop(api_key)
                         
+                    if not top_tier_players[summIdx][1].get(api_key, None):
+                        continue
+                    
                     summId = top_tier_players[summIdx][1][api_key][0]
                     platform = top_tier_players[summIdx][0][0]
                     #t = threading.Thread(
